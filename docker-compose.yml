@@ -1,0 +1,7 @@
+services:
+  marianos-meat:
+    build: .
+    ports:
+     # Verificar mapeamento de portas do servidor da aplicação.
+      - "5175:80"
+    restart: always
