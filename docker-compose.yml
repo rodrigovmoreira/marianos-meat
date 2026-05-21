@@ -1,7 +1,27 @@
+version: '3.8'
+
 services:
-  marianos-meat:
-    build: .
+  # ------------------------------------
+  # CONTAINER 1: FRONTEND (React + Vite)
+  # ------------------------------------
+  frontend:
+    build:
+      context: ./frontend  # <--- Aponta para a nova pasta
+      dockerfile: Dockerfile
+    container_name: marianos_frontend
     ports:
-     # Verificar mapeamento de portas do servidor da aplicação.
-      - "5175:80"
+      - "5175:80" # Ou a porta que você configurou no Nginx
+    restart: always
+
+  # ------------------------------------
+  # CONTAINER 2: BACKEND (Node.js API)
+  # ------------------------------------
+  # Vamos deixar a estrutura pronta para quando criarmos a API
+  backend:
+    build:
+      context: ./backend   # <--- Apontará para a pasta do backend
+      dockerfile: Dockerfile
+    container_name: marianos_backend
+    ports:
+      - "3005:3000" # Porta que a nossa API vai usar
     restart: always
