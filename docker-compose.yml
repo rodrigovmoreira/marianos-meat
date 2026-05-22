@@ -24,4 +24,6 @@ services:
     container_name: marianos_backend
     ports:
       - "3005:3000" # Porta que a nossa API vai usar
+    env_file:
+      - .env
     restart: always
