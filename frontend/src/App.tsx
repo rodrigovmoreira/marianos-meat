@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Link as RouterLink } from "react-router-dom"
 import { Box, Button, Container, Heading, SimpleGrid, Text, Image, VStack, HStack, Link, IconButton, Separator, Stack } from "@chakra-ui/react"
-import { FaInstagram, FaFacebook, FaWhatsapp, FaPhoneAlt, FaPaperPlane, FaMapMarkerAlt } from "react-icons/fa"
+import { FaInstagram, FaFacebook, FaWhatsapp, FaPhoneAlt, FaPaperPlane } from "react-icons/fa"
 
 // Importando as Páginas
 import Home from "./pages/Home"
