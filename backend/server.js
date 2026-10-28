@@ -19,9 +19,14 @@ app.use(cors());
 app.use(express.json());
 
 // 3. Injeção das Rotas Modulares do App
-app.use('/api', contatoRoutes);
-app.use('/api', postRoutes);
-app.use('/api/auth', authRoutes);
+// Caminho canônico único: /api/v1/<recurso>. Ver ADR 002 em Calango-docs/docs/ADRs.
+app.get('/api/v1/health', (req, res) => {
+  res.json({ status: 'UP', service: 'marianos-meat', timestamp: new Date().toISOString() });
+});
+
+app.use('/api/v1', contatoRoutes);
+app.use('/api/v1', postRoutes);
+app.use('/api/v1/auth', authRoutes);
 
 // 4. Ativação do Servidor Express
 app.listen(PORT, () => {
