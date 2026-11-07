@@ -1,30 +1,14 @@
 import express from 'express';
 import { 
   solicitarAcesso, 
-  verificarAcessoAtual, 
-  listarPendentes, 
-  gerenciarAcessoUsuario 
+  verificarAcessoAtual 
 } from '../controllers/authController.js';
-import { exigirAprovacao, exigirSuperAdmin } from '../middleware/authMiddleware.js';
+import { verificarIdentidade } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// ==========================================
-// ROTAS PÚBLICAS (Não exigem aprovação prévia)
-// ==========================================
-
-// Rota para o usuário pedir acesso após logar no Squamata pela primeira vez
-router.post('/solicitar', solicitarAcesso);
-
-// ==========================================
-// ROTAS PROTEGIDAS (Exigem o Token do Squamata validado)
-// ==========================================
-
-// Rota para o React saber qual o nível de acesso do usuário logado
-router.get('/me', exigirAprovacao, verificarAcessoAtual);
-
-// Rotas exclusivas para o Super Admin (O Bruno Mariano) gerenciar a equipe
-router.get('/pendentes', exigirSuperAdmin, listarPendentes);
-router.put('/aprovar/:id', exigirSuperAdmin, gerenciarAcessoUsuario);
+// Ambas exigem apenas identidade válida do Squamata-Login (o usuário pode estar pendente).
+router.post('/solicitar', verificarIdentidade, solicitarAcesso);
+router.get('/me', verificarIdentidade, verificarAcessoAtual);
 
 export default router;

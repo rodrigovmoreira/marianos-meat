@@ -69,12 +69,13 @@ backend/
 | GET | `/api/v1/health` | pública |
 | GET | `/api/v1/posts` | pública |
 | GET | `/api/v1/posts/:slug` | pública |
-| POST | `/api/v1/posts` | **pública** ⚠️ |
+| POST | `/api/v1/posts` | `exigirAprovacao` |
 | POST | `/api/v1/contato` | pública |
-| POST | `/api/v1/auth/solicitar` | pública ⚠️ |
-| GET | `/api/v1/auth/me` | `verificarAcesso` |
-| GET | `/api/v1/auth/pendentes` | `verificarAcesso` + `super_admin` |
-| PUT | `/api/v1/auth/aprovar/:id` | `verificarAcesso` + `super_admin` |
+| POST | `/api/v1/auth/solicitar` | `verificarIdentidade` (idempotente) |
+| GET | `/api/v1/auth/me` | `verificarIdentidade` (200 mesmo sem cadastro) |
+| GET | `/api/v1/admins` | `exigirSuperAdmin` (`?status=`) |
+| GET | `/api/v1/admins/pendentes` | `exigirSuperAdmin` |
+| PATCH | `/api/v1/admins/:id/status` | `exigirSuperAdmin` |
 
 Caminho versionado único (`/api/v1/...`) ✅ conforme ADR 002 — sem alias legado.
 
@@ -230,7 +231,7 @@ Plano aprovado em 2026-11-06 em 3 PRs empilhados sobre `backend_frontend`:
 | PR | Branch | Escopo | Status |
 | --- | --- | --- | --- |
 | 1 | `feat/identidade-tenant` | Fundação de identidade (A1–A4), schema Admin (B6), logs estruturados (C2) | concluído |
-| 2 | `feat/aprovacao-acesso` | Fluxo de solicitação/aprovação (B1–B5) + `AuditLog` (C1) | pendente |
+| 2 | `feat/aprovacao-acesso` | Fluxo de solicitação/aprovação (B1–B5) + `AuditLog` (C1) | concluído |
 | 3 | `feat/painel-admin` | Contexto, rotas privadas, login SSO e painel (D1–D5) | pendente |
 
 Bloco **E** (porta no compose, CORS allowlist, rede `squamata-global` + healthcheck) **não foi aprovado** — segue pendente.
@@ -244,6 +245,19 @@ Bloco **E** (porta no compose, CORS allowlist, rede `squamata-global` + healthch
 - `src/app.js` (fábrica sem banco/listen) + `server.js` só como bootstrap. Handler global de erro e 404 com formato `{ success: false, error: { code, message } }`.
 - `postController`/`contatoController` delegam erro ao handler e logam com contexto.
 
+### O que mudou no PR 2
+
+- `POST /api/v1/auth/solicitar` usa **a identidade do token**; body é ignorado. Repetir a chamada é idempotente (200) e a corrida de duas requisições simultâneas é contida pelo índice único.
+- `GET /api/v1/auth/me` responde **200** sempre, com `access: { registered, status, role, isActive, canAccessPanel }` — `status` pode ser `nao_cadastrado`.
+- Gestão de acesso migrou para **`/api/v1/admins`** (todas com `exigirSuperAdmin`): `GET /`, `GET /pendentes`, `PATCH /:id/status` com `{ status }`.
+- `PATCH` recusa status inválido (400), id inválido (400), admin de outro tenant (404) e auto-revogação do próprio super admin (400).
+- `POST /api/v1/posts` protegido com `exigirAprovacao`.
+- `AuditLog` grava `acesso.solicitado`, `acesso.aprovado`, `acesso.rejeitado` e `acesso.reenviado_para_analise` com `appSlug`, `tenantId`, IP e ator. **Falha de auditoria propaga erro** (não é engolida).
+- `npm run seed:super-admin` (usa `SUPER_ADMIN_EMAIL`/`SUPER_ADMIN_NAME`) resolve o ovo-e-a-galinha do primeiro super admin.
+
+### Evidências de execução (2026-11-06)
+
+`node node_modules/.e2e-check.mjs` (Express real + MongoDB real, tenant `smoke-test`, token assinado com segredo de teste): 22 verificações OK — health, guard `/api/posts`, 401 sem token, 403 de appSlug, `/me` 200 sem cadastro, solicitar 201 + idempotente 200, body ignorado, pendentes 403, `/admins` 200/400, aprovação 200 com `canAccessPanel: true`, auto-revogação 400, `POST /posts` 401/201, auditoria com 2 eventos e limpeza zerada.
 ### Premissas a confirmar com o Squamata-Login
 
 1. **`sub` carrega o e-mail** do usuário. Se for um ObjectId, o Admin só será encontrado por `loginSubject` (o vínculo já existe) — e o `email` fica nulo até alguém informar.

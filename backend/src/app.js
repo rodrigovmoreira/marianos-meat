@@ -3,6 +3,7 @@ import express from 'express';
 
 import { env } from './config/env.js';
 import { apiErrorHandler, apiNotFound } from './middleware/errorHandler.js';
+import adminRoutes from './routes/adminRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import contatoRoutes from './routes/contatoRoutes.js';
 import postRoutes from './routes/postRoutes.js';
@@ -27,6 +28,7 @@ export const createApp = () => {
   app.use('/api/v1', contatoRoutes);
   app.use('/api/v1', postRoutes);
   app.use('/api/v1/auth', authRoutes);
+  app.use('/api/v1/admins', adminRoutes);
 
   app.use(apiNotFound);
   app.use(apiErrorHandler);
