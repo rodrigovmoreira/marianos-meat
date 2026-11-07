@@ -1,5 +1,6 @@
 import { Box, Heading, Input, Textarea, Button, VStack, Field, Text } from "@chakra-ui/react";
 import { useState } from "react";
+import { api, getApiErrorMessage } from "../lib/api";
 
 export default function AdminEditor() {
   const [titulo, setTitulo] = useState("");
@@ -12,31 +13,23 @@ export default function AdminEditor() {
     setStatus({ loading: true, message: "Salvando...", type: "info" });
 
     try {
-      // Usando a variável de ambiente do Vite!
-      const API_URL = import.meta.env.VITE_API_URL;
-      
-      const response = await fetch(`${API_URL}/posts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ titulo, resumo, conteudo })
-      });
+      // `api` já injeta o token do Squamata-Login no header Authorization.
+      await api.post("/posts", { titulo, resumo, conteudo });
 
-      if (response.ok) {
-        setStatus({ loading: false, message: "✅ Publicação criada com sucesso!", type: "success" });
-        // Limpa o formulário
-        setTitulo(""); setResumo(""); setConteudo("");
-      } else {
-        setStatus({ loading: false, message: "❌ Erro ao salvar publicação.", type: "error" });
-      }
+      setStatus({ loading: false, message: "✅ Publicação criada com sucesso!", type: "success" });
+      // Limpa o formulário
+      setTitulo(""); setResumo(""); setConteudo("");
     } catch (error) {
-      console.error(error);
-      setStatus({ loading: false, message: "❌ Falha na conexão com o servidor.", type: "error" });
+      setStatus({ loading: false, message: `❌ ${getApiErrorMessage(error, "Erro ao salvar publicação.")}`, type: "error" });
     }
   };
 
   return (
-    <Box p={8} bg="black" color="white" minH="100vh" maxW="2xl" mx="auto">
-      <Heading mb={6} color="red.500">Editor Rápido de Publicações</Heading>
+    <Box w="full" maxW="2xl">
+      <Heading mb={2} color="red.500">Editor Rápido de Publicações</Heading>
+      <Text mb={6} color="gray.400" fontSize="sm">
+        A publicação entra no ar imediatamente após salvar.
+      </Text>
       
       {status.message && (
         <Text mb={4} color={status.type === "error" ? "red.400" : "green.400"} fontWeight="bold">

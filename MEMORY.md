@@ -85,9 +85,13 @@ Caminho versionado único (`/api/v1/...`) ✅ conforme ADR 002 — sem alias leg
 
 ```
 frontend/src/
-├── App.tsx            # BrowserRouter + header/footer globais + <Routes>
-├── main.tsx, index.css, App.css
-└── pages/{Home,Blog,PostView,AdminEditor}.tsx
+├── App.tsx              # SiteShell (site público) + rotas /login e /admin
+├── main.tsx             # ChakraProvider + AuthProvider
+├── components/{PrivateRoute,AdminLayout}.tsx
+├── context/{AuthContext.tsx,auth-context.ts}
+├── lib/{api.ts,sso.ts}
+├── pages/{Home,Blog,PostView,AdminEditor,Login}.tsx
+└── pages/admin/{Dashboard,Aprovacoes,Configuracoes}.tsx
 ```
 
 | Rota | Componente | Proteção |
@@ -95,13 +99,17 @@ frontend/src/
 | `/` | `Home` | pública |
 | `/blog` | `Blog` | pública |
 | `/blog/:slug` | `PostView` | pública |
-| `/admin/blog` | `AdminEditor` | **nenhuma** ⚠️ |
+| `/login` | `Login` | redireciona para o SSO (sem formulário local) |
+| `/admin` | `AdminDashboard` | `PrivateRoute` |
+| `/admin/aprovacoes` | `Aprovacoes` | `PrivateRoute` + `super_admin` |
+| `/admin/blog` | `AdminEditor` | `PrivateRoute` + `POST /posts` com token |
+| `/admin/configuracoes` | `Configuracoes` | `PrivateRoute` (placeholder) |
 
-- Chamadas HTTP usam `fetch(\`${import.meta.env.VITE_API_URL}/posts\`)` em `Blog.tsx`, `PostView.tsx` e `AdminEditor.tsx`.
-- **Não existe `frontend/.env`** — sem `VITE_API_URL` no Vite do frontend, a variável vem `undefined` em `npm run dev`. A chave está no `.env.example` da raiz, mas o Vite só lê `.env` dentro de `frontend/`.
-- `axios` está instalado e **não é usado**.
-- Nenhum header `Authorization` é enviado em lugar algum.
-- Ausentes (todos previstos no roadmap 1): `AuthContext`, `PrivateRoute`, `Login`, `AdminLayout`, `Aprovacoes`.
+- Chamadas HTTP do painel passam por `src/lib/api.ts` (axios com `Authorization` automático). As páginas públicas (`Blog`, `PostView`) ainda usam `fetch` direto — não é problema, mas é inconsistência conhecida.
+- `frontend/.env` e `frontend/.env.example` existem com `VITE_API_URL`, `VITE_SSO_URL`, `VITE_APP_SLUG`, `VITE_TENANT_ID`.
+- `axios` agora é usado (antes estava instalado e ocioso).
+- Implementados: `context/AuthContext.tsx` (provider), `context/auth-context.ts` (contexto + `useAuth`), `components/PrivateRoute.tsx`, `components/AdminLayout.tsx`, `pages/Login.tsx`, `pages/admin/{Dashboard,Aprovacoes,Configuracoes}.tsx`, `lib/{api,sso}.ts`.
+- O shell público (`SiteShell`) e o painel (`/admin`) são rotas separadas — o painel não herda o header/footer do site.
 
 ---
 
@@ -112,14 +120,14 @@ frontend/src/
 | ESM puro, sem CommonJS | ✅ | `"type": "module"` no backend |
 | API só em `/api/v1/<recurso>` + `GET /api/v1/health` | ✅ | `server.js` |
 | Autenticação delegada ao Squamata-Login | ✅ conceito / ⚠️ implementação | middleware só valida JWT, não emite — mas usa o segredo errado |
-| Segredo compartilhado `JWT_SECRET_LOGIN` | ❌ | `authMiddleware.js` usa `process.env.JWT_SECRET` |
-| Sem fallback de segredo / fail fast no boot | ❌ | não há `validateEnv`; `JWT_SECRET` ausente só estoura no primeiro request (401), não no boot |
-| Validar `appSlug` + `tenantId` em toda requisição | ❌ | middleware lê apenas `email`; `Admin` não tem `tenantId` |
-| Kill-switch `isActive` nos modelos de usuário | ❌ | `Admin` não possui o campo |
-| `AuditLog` de login/alteração sensível | ❌ | não existe coleção nem log estruturado |
-| Log de erro com serviço + operação + `appSlug`/`tenantId` | ❌ | controllers usam `console.error`/`console.log` genéricos |
-| Rotas de escrita protegidas | ❌ | `POST /api/v1/posts` sem middleware |
-| MongoDB produção na porta 27018 | ⚠️ | `db.js` e `.env.example` apontam 27017 |
+| Segredo compartilhado `JWT_SECRET_LOGIN` | ✅ | `env.js` centraliza; middleware usa `env.jwtSecretLogin` |
+| Sem fallback de segredo / fail fast no boot | ✅ | `env.js` aborta sem `MONGO_URI`/`JWT_SECRET_LOGIN` |
+| Validar `appSlug` + `tenantId` em toda requisição | ✅ | `verificarIdentidade` recusa appSlug divergente e tenant ausente (403) |
+| Kill-switch `isActive` nos modelos de usuário | ✅ | `checarAprovacao` devolve 403 `CONTA_INATIVA` |
+| `AuditLog` de login/alteração sensível | ✅ | eventos `acesso.*` com appSlug/tenantId/IP |
+| Log de erro com serviço + operação + `appSlug`/`tenantId` | ✅ | `utils/logger.js` |
+| Rotas de escrita protegidas | ✅ | `POST /api/v1/posts` com `exigirAprovacao` |
+| MongoDB produção na porta 27018 | ⚠️ | `.env.example` corrigido; o `.env` real precisa apontar o servidor |
 | Segredos só em `process.env`, `.env` fora do git | ✅ | `.env` no `.gitignore`, `.env.example` versionado |
 | Docker compose na rede `squamata-global` + healthcheck | ❌ | `docker-compose.yml` sem `networks` e sem `healthcheck` |
 | Dockerfile multi-stage | ⚠️ | backend é single-stage com `npm install`; frontend já é multi-stage |
@@ -154,8 +162,8 @@ frontend/src/
    - o token volta no `returnUrl`.
 
    **Decisão:** `Login.tsx` deve ser uma tela que **redireciona para o SSO** e trata o retorno, não um formulário de credenciais.
-2. **`VITE_API_URL` não existe dentro de `frontend/`** — em dev o fetch monta `undefined/posts`. Precisa de `frontend/.env` (ignorado no git) ou `define` no `vite.config.ts`.
-3. **`POST /api/v1/posts` está aberto.** Proteger sem quebrar o `AdminEditor` exige, no mesmo PR, o `AuthContext` enviando `Authorization`.
+2. **`VITE_API_URL` sem `.env` no frontend** — em dev o fetch montava `undefined/posts`. Resolvido com `frontend/.env` + `frontend/.env.example` (`VITE_API_URL ?? 'http://localhost:3020/api/v1'` como rede de segurança no `api.ts`).
+3. **`POST /api/v1/posts` estava aberto.** Agora exige `exigirAprovacao` e o `AdminEditor` envia o token via `api.ts`.
 4. **`dotenv.config({ path: '../.env' })` depende do cwd.** Rodar `node backend/server.js` da raiz não carrega o `.env`. Sempre subir de dentro de `backend/`.
 5. **`JWT_SECRET` vs `JWT_SECRET_LOGIN`:** hoje o middleware usa `JWT_SECRET`. Se o ambiente só tiver `JWT_SECRET_LOGIN`, todo token válido vira 401 — e o sintoma parece "Squamata fora do ar". Diagnóstico correto: conferir o nome da chave **antes** de culpar o login.
 6. **401 em cascata não é bug deste app.** `squamata-login` é SPOF de identidade; com ele fora, nenhum login novo acontece. Verificar `GET /api/v1/health` do login primeiro.
@@ -232,7 +240,7 @@ Plano aprovado em 2026-11-06 em 3 PRs empilhados sobre `backend_frontend`:
 | --- | --- | --- | --- |
 | 1 | `feat/identidade-tenant` | Fundação de identidade (A1–A4), schema Admin (B6), logs estruturados (C2) | concluído |
 | 2 | `feat/aprovacao-acesso` | Fluxo de solicitação/aprovação (B1–B5) + `AuditLog` (C1) | concluído |
-| 3 | `feat/painel-admin` | Contexto, rotas privadas, login SSO e painel (D1–D5) | pendente |
+| 3 | `feat/painel-admin` | Contexto, rotas privadas, login SSO e painel (D1–D5) | concluído |
 
 Bloco **E** (porta no compose, CORS allowlist, rede `squamata-global` + healthcheck) **não foi aprovado** — segue pendente.
 
@@ -258,6 +266,39 @@ Bloco **E** (porta no compose, CORS allowlist, rede `squamata-global` + healthch
 ### Evidências de execução (2026-11-06)
 
 `node node_modules/.e2e-check.mjs` (Express real + MongoDB real, tenant `smoke-test`, token assinado com segredo de teste): 22 verificações OK — health, guard `/api/posts`, 401 sem token, 403 de appSlug, `/me` 200 sem cadastro, solicitar 201 + idempotente 200, body ignorado, pendentes 403, `/admins` 200/400, aprovação 200 com `canAccessPanel: true`, auto-revogação 400, `POST /posts` 401/201, auditoria com 2 eventos e limpeza zerada.
+
+### O que mudou no PR 3 (frontend)
+
+- `lib/sso.ts`: monta a URL do Squamata-Login com `appSlug`, `tenantId` e `returnUrl`; lê o token devolvido (query ou hash) e limpa a URL.
+- `context/AuthContext.tsx` + `context/auth-context.ts`: provider guarda o token em `localStorage`, expõe `useAuth`, `refresh`, `signOut`; 401 descarta a sessão.
+- `components/PrivateRoute.tsx`: sem token → `/login`; sem cadastro → solicita acesso automaticamente; `pendente`/`rejeitado`/`isActive=false` → telas próprias; aprovado → painel.
+- `pages/Login.tsx`: **redirect** para o SSO (nenhum formulário de credenciais).
+- `components/AdminLayout.tsx`: sidebar escura (Visão Geral, Aprovações, Blog, Configurações) + `Outlet`.
+- `pages/admin/Aprovacoes.tsx`: lista `GET /admins/pendentes` e decide com `PATCH /admins/:id/status`.
+- `AdminEditor` passou a usar `api` (token automático) e deixou de ser rota pública.
+- `App.tsx` separa `SiteShell` (site público com header/footer) das rotas `/login` e `/admin`.
+
+### Evidências do PR 3
+
+- `npm run lint` → **0 problemas** (as regras `react-hooks/set-state-in-effect` e `react-refresh/only-export-components` exigiram separar `useAuth` em `auth-context.ts` e carregar dados fora do corpo síncrono do efeito).
+- `npm run build` (`tsc -b && vite build`) → **sucesso** (1981 módulos; único aviso é chunk > 500 kB).
+- Fluxo autenticado na UI **não** foi exercitado: depende do Squamata-Login (3001/5174), que não está no ar, e de `JWT_SECRET_LOGIN`.
+
+---
+
+## 13. Arquivos `.env` — o que é obrigatório e onde
+
+O repositório **não** tem todos os `.env` versionados (correto). Cada ambiente precisa montar os seus:
+
+| Arquivo | Onde | Chaves | Consequência da ausência |
+| --- | --- | --- | --- |
+| `.env` | raiz (`marianos-meat/.env`, ignorado) | `MONGO_URI`, `JWT_SECRET_LOGIN` (obrigatórias); `PORT`, `APP_SLUG`, `DEFAULT_TENANT_ID` (opcionais) | backend **aborta o boot** |
+| `frontend/.env` | dentro de `frontend/` (ignorado) | `VITE_API_URL`, `VITE_SSO_URL`, `VITE_APP_SLUG`, `VITE_TENANT_ID` | frontend usa defaults de `api.ts`/`sso.ts` |
+
+- O Vite **só** lê `.env` de dentro de `frontend/` — a chave `VITE_*` na raiz é ignorada pelo frontend.
+- `JWT_SECRET_LOGIN` **não existe** no `.env` local deste repositório (2026-11-06). Precisa ser copiada do `squamata-login` e **deve ser idêntica** à usada por Calango-Bot/Calango-Food.
+- `SUPER_ADMIN_EMAIL` só é necessária no momento de rodar `npm run seed:super-admin`.
+- Nunca pedir, imprimir ou commitar o valor do segredo. Ele é digitado direto no `.env` por quem administra o ambiente.
 ### Premissas a confirmar com o Squamata-Login
 
 1. **`sub` carrega o e-mail** do usuário. Se for um ObjectId, o Admin só será encontrado por `loginSubject` (o vínculo já existe) — e o `email` fica nulo até alguém informar.
