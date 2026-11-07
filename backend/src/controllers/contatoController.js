@@ -1,13 +1,19 @@
 import Contato from '../models/Contato.js';
+import { sendSuccess } from '../utils/http.js';
+import { logInfo } from '../utils/logger.js';
 
-export const criarContato = async (req, res) => {
+export const criarContato = async (req, res, next) => {
   try {
     const novoContato = new Contato(req.body);
     await novoContato.save();
-    console.log('📝 Novo contato registrado:', req.body.nome);
-    res.status(201).json({ success: true, message: 'Contato salvo com sucesso!' });
+
+    logInfo('contato.criar', 'Novo contato registrado.', {
+      appSlug: req.identity?.appSlug,
+      tenantId: req.identity?.tenantId,
+    });
+
+    return sendSuccess(res, 201, { message: 'Contato salvo com sucesso!' });
   } catch (error) {
-    console.error('Erro ao salvar contato:', error);
-    res.status(500).json({ success: false, error: 'Erro interno ao processar o formulário.' });
+    return next(error);
   }
 };

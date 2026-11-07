@@ -72,7 +72,7 @@ export const listarPendentes = async (req, res) => {
       return res.status(403).json({ success: false, error: 'Acesso negado. Apenas super administradores.' });
     }
 
-    const pendentes = await Admin.find({ status: 'pendente' }).sort({ dataSolicitacao: -1 });
+    const pendentes = await Admin.find({ status: 'pendente' }).sort({ createdAt: -1 });
     res.status(200).json({ success: true, pendentes });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Erro ao buscar pendentes.' });
