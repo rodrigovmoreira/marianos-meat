@@ -5,7 +5,7 @@ import {
   listarPendentes, 
   gerenciarAcessoUsuario 
 } from '../controllers/authController.js';
-import { verificarAcesso } from '../middleware/authMiddleware.js';
+import { exigirAprovacao, exigirSuperAdmin } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
@@ -21,10 +21,10 @@ router.post('/solicitar', solicitarAcesso);
 // ==========================================
 
 // Rota para o React saber qual o nível de acesso do usuário logado
-router.get('/me', verificarAcesso, verificarAcessoAtual);
+router.get('/me', exigirAprovacao, verificarAcessoAtual);
 
 // Rotas exclusivas para o Super Admin (O Bruno Mariano) gerenciar a equipe
-router.get('/pendentes', verificarAcesso, listarPendentes);
-router.put('/aprovar/:id', verificarAcesso, gerenciarAcessoUsuario);
+router.get('/pendentes', exigirSuperAdmin, listarPendentes);
+router.put('/aprovar/:id', exigirSuperAdmin, gerenciarAcessoUsuario);
 
 export default router;

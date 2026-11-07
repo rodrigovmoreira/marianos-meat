@@ -1,40 +1,96 @@
 import jwt from 'jsonwebtoken';
+
+import { env } from '../config/env.js';
 import Admin from '../models/Admin.js';
+import { buildAdminLookup, getIdentity } from '../utils/identity.js';
+import { sendError } from '../utils/http.js';
+import { logError } from '../utils/logger.js';
 
-export const verificarAcesso = async (req, res, next) => {
+const extractToken = (req) => {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith('Bearer ')) return null;
+
+  const token = header.slice('Bearer '.length).trim();
+  return token.length > 0 ? token : null;
+};
+
+/**
+ * 1ª camada — só prova quem é o usuário (JWT válido + escopo correto).
+ * Não exige cadastro nem aprovação: é o que permite ao usuário pendente
+ * consultar o próprio status e pedir acesso.
+ */
+export const verificarIdentidade = async (req, res, next) => {
+  const token = extractToken(req);
+
+  if (!token) {
+    return sendError(res, 401, 'TOKEN_AUSENTE', 'Acesso negado. Token não fornecido.');
+  }
+
+  let payload;
+
   try {
-    // 1. Verifica se o Frontend enviou o Token no cabeçalho
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Acesso negado. Token não fornecido.' });
-    }
-
-    const token = authHeader.split(' ')[1];
-
-    // 2. Abre o Token usando a chave secreta (a mesma do Squamata)
-    const SECRET = process.env.JWT_SECRET;
-    const decodificado = jwt.verify(token, SECRET);
-    
-    // O Squamata deve salvar o email no payload do token
-    const userEmail = decodificado.email; 
-
-    // 3. Verifica no NOSSO banco se esse email existe e está liberado
-    const adminConfig = await Admin.findOne({ email: userEmail });
-
-    if (!adminConfig) {
-      return res.status(403).json({ error: 'Usuário não cadastrado neste sistema.' });
-    }
-
-    if (adminConfig.status !== 'aprovado') {
-      return res.status(403).json({ error: 'Acesso pendente de aprovação pelo Super Admin.' });
-    }
-
-    // 4. Se passou em tudo, salva as informações na requisição e deixa passar
-    req.admin = adminConfig;
-    next();
-
+    // Validação local e stateless com o segredo compartilhado do Squamata-Login.
+    payload = jwt.verify(token, env.jwtSecretLogin);
   } catch (error) {
-    console.error('Erro na validação do token:', error.message);
-    return res.status(401).json({ error: 'Token inválido ou expirado.' });
+    logError('auth.verificarIdentidade', error, { operation: 'verificarToken' });
+    return sendError(res, 401, 'TOKEN_INVALIDO', 'Token inválido ou expirado.');
+  }
+
+  const identity = getIdentity(payload);
+
+  if (!identity.subject) {
+    return sendError(res, 401, 'TOKEN_INVALIDO', 'Token sem identificador de usuário (sub).');
+  }
+
+  if (identity.appSlug !== env.appSlug) {
+    return sendError(res, 403, 'APP_NAO_AUTORIZADO', 'Token emitido para outra aplicação.');
+  }
+
+  if (!identity.tenantId) {
+    return sendError(res, 403, 'TENANT_AUSENTE', 'Token sem contexto de tenant.');
+  }
+
+  try {
+    req.identity = identity;
+    req.admin = await Admin.findOne(buildAdminLookup(identity, identity.tenantId));
+    return next();
+  } catch (error) {
+    return next(error);
   }
 };
+
+/**
+ * 2ª camada — exige Admin cadastrado, ativo e aprovado.
+ * Roda sempre depois de `verificarIdentidade` (acoplado nas cadeias abaixo).
+ */
+export const checarAprovacao = (req, res, next) => {
+  if (!req.admin) {
+    return sendError(res, 403, 'NAO_CADASTRADO', 'Usuário não cadastrado neste sistema.');
+  }
+
+  // Kill-switch: desativar o Admin bloqueia o acesso imediatamente.
+  if (req.admin.isActive === false) {
+    return sendError(res, 403, 'CONTA_INATIVA', 'Sua conta está desativada. Procure o administrador.');
+  }
+
+  if (req.admin.status === 'pendente') {
+    return sendError(res, 403, 'PENDENTE', 'Seu acesso está em análise pelo administrador.');
+  }
+
+  if (req.admin.status === 'rejeitado') {
+    return sendError(res, 403, 'REJEITADO', 'Sua solicitação de acesso foi rejeitada.');
+  }
+
+  return next();
+};
+
+const checarSuperAdmin = (req, res, next) => {
+  if (req.admin?.role !== 'super_admin') {
+    return sendError(res, 403, 'SEM_PERMISSAO', 'Acesso negado. Apenas super administradores.');
+  }
+
+  return next();
+};
+
+export const exigirAprovacao = [verificarIdentidade, checarAprovacao];
+export const exigirSuperAdmin = [verificarIdentidade, checarAprovacao, checarSuperAdmin];

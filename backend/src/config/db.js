@@ -1,13 +1,16 @@
 import mongoose from 'mongoose';
 
+import { env } from './env.js';
+import { logError, logInfo } from '../utils/logger.js';
+
 const connectDB = async () => {
-  const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/marianos_meat';
   try {
-    await mongoose.connect(MONGO_URI);
-    console.log('✅ Conectado ao MongoDB com sucesso!');
-  } catch (err) {
-    console.error('❌ Erro de conexão com MongoDB:', err);
-    process.exit(1); // Fecha a aplicação se não conseguir conectar ao banco crítico
+    await mongoose.connect(env.mongoUri);
+    logInfo('db.connect', 'Conectado ao MongoDB com sucesso.');
+  } catch (error) {
+    logError('db.connect', error, { operation: 'connectDB' });
+    // Banco é plataforma: sem ele o serviço não sobe.
+    process.exit(1);
   }
 };
 

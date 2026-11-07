@@ -1,25 +1,26 @@
 import Post from '../models/Post.js';
+import { sendError, sendSuccess } from '../utils/http.js';
 
-export const listarPosts = async (req, res) => {
+export const listarPosts = async (req, res, next) => {
   try {
     const posts = await Post.find().sort({ dataCriacao: -1 });
     res.json(posts);
   } catch (error) {
-    res.status(500).json({ success: false, error: 'Erro ao buscar publicações.' });
+    next(error);
   }
 };
 
-export const buscarPostPorSlug = async (req, res) => {
+export const buscarPostPorSlug = async (req, res, next) => {
   try {
     const post = await Post.findOne({ slug: req.params.slug });
-    if (!post) return res.status(404).json({ success: false, message: 'Post não encontrado.' });
+    if (!post) return sendError(res, 404, 'POST_NAO_ENCONTRADO', 'Post não encontrado.');
     res.json(post);
   } catch (error) {
-    res.status(500).json({ success: false, error: 'Erro ao buscar o post.' });
+    next(error);
   }
 };
 
-export const criarPost = async (req, res) => {
+export const criarPost = async (req, res, next) => {
   try {
     const slug = req.body.titulo
       .toLowerCase()
@@ -31,10 +32,9 @@ export const criarPost = async (req, res) => {
 
     const novoPost = new Post({ ...req.body, slug });
     await novoPost.save();
-    
-    res.status(201).json({ success: true, message: 'Publicação criada com sucesso!', post: novoPost });
+
+    sendSuccess(res, 201, { message: 'Publicação criada com sucesso!', post: novoPost });
   } catch (error) {
-    console.error('Erro ao salvar publicação:', error);
-    res.status(500).json({ success: false, error: 'Erro ao salvar publicação.' });
+    next(error);
   }
 };
